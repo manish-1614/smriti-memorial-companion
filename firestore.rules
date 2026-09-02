@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Only authenticated users can access the database
+    // All memorial profiles, memories, and chat messages are user-isolated under /users/{userId}
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // Memorial profiles for this user
+      match /memorials/{memorialId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+        // Memories collection under specific memorial
+        match /memories/{memoryId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        // Chat sessions and messages under specific memorial
+        match /conversations/{conversationId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+
+          match /messages/{messageId} {
+            allow read, write: if request.auth != null && request.auth.uid == userId;
+          }
+        }
+      }
+    }
+  }
+}

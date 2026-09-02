@@ -1,0 +1,6 @@
+{
+  "name": "Smriti",
+  "description": "A digital memorial companion application grounded in personal memories using Gemini API vector embeddings and Cloud Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
