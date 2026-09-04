@@ -16,6 +16,7 @@ export interface MemorialProfile {
   passedYear?: string;
   yearOfPassing?: string;
   bioSnippet?: string;
+  memoriesCount?: number;
   createdAt: number;
   updatedAt: number;
 }

@@ -52,6 +52,10 @@ export default function SmritiDashboard() {
   const [letterProfile, setLetterProfile] = useState<MemorialProfile | null>(null);
   const [letterMemories, setLetterMemories] = useState<MemorialMemory[]>([]);
 
+  // Profile deletion state
+  const [memorialToDelete, setMemorialToDelete] = useState<MemorialProfile | null>(null);
+  const [isDeletingMemorial, setIsDeletingMemorial] = useState(false);
+
   // Load user's memorials on mount or user change
   useEffect(() => {
     let active = true;
@@ -119,14 +123,23 @@ export default function SmritiDashboard() {
     }
   };
 
-  const handleDeleteMemorial = async (memorialId: string) => {
-    if (!user) return;
-    if (confirm('Are you sure you want to delete this memorial profile and all related memories and conversations?')) {
+  const confirmDeleteMemorial = async () => {
+    if (!user || !memorialToDelete) return;
+    const memorialId = memorialToDelete.id;
+    setIsDeletingMemorial(true);
+    // Optimistic UI removal
+    setMemorials((prev) => prev.filter((m) => m.id !== memorialId));
+    if (selectedMemorial?.id === memorialId) {
+      setSelectedMemorial(null);
+      setActiveView('dashboard');
+    }
+    try {
       await deleteMemorialProfile(user.uid, memorialId);
-      if (selectedMemorial?.id === memorialId) {
-        setSelectedMemorial(null);
-        setActiveView('dashboard');
-      }
+    } catch (err) {
+      console.error('Failed to delete memorial profile:', err);
+    } finally {
+      setIsDeletingMemorial(false);
+      setMemorialToDelete(null);
       await refreshMemorials();
     }
   };
@@ -149,8 +162,30 @@ export default function SmritiDashboard() {
 
   const handleDeleteMemory = async (memoryId: string) => {
     if (!user || !selectedMemorial) return;
-    await deleteMemory(user.uid, selectedMemorial.id, memoryId);
-    await refreshMemories(selectedMemorial.id);
+    const memorialId = selectedMemorial.id;
+
+    // 1. Optimistically remove from state immediately
+    setSelectedMemories((prev) => prev.filter((m) => m.id !== memoryId));
+
+    // 2. Decrement companion's cached memory counter in UI state
+    setMemorials((prev) =>
+      prev.map((m) =>
+        m.id === memorialId
+          ? { ...m, memoriesCount: Math.max(0, (m.memoriesCount ?? 1) - 1) }
+          : m
+      )
+    );
+    setSelectedMemorial((prev) =>
+      prev ? { ...prev, memoriesCount: Math.max(0, (prev.memoriesCount ?? 1) - 1) } : null
+    );
+
+    // 3. Dispatch cascade atomic deletion targeting all Firestore subcollection references
+    try {
+      await deleteMemory(user.uid, memorialId, memoryId);
+    } catch (err) {
+      console.error('Failed to delete memory:', err);
+    }
+    await refreshMemories(memorialId);
   };
 
   // Switch to chat view
@@ -373,7 +408,8 @@ export default function SmritiDashboard() {
                               <Edit className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => handleDeleteMemorial(profile.id)}
+                              id={`delete-memorial-btn-${profile.id}`}
+                              onClick={() => setMemorialToDelete(profile)}
                               className="p-1.5 rounded-lg text-[#8C7B6E] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                               title="Delete Profile"
                             >
@@ -519,6 +555,61 @@ export default function SmritiDashboard() {
         profile={letterProfile || selectedMemorial}
         memories={letterMemories.length > 0 ? letterMemories : selectedMemories}
       />
+
+      {/* In-App Delete Memorial Confirmation Modal */}
+      {memorialToDelete && (
+        <div
+          id="delete-memorial-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs"
+        >
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E5E0D5] shadow-xl space-y-4 font-sans animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-serif font-bold text-[#4A443F]">Delete Memorial Profile</h3>
+                <p className="text-xs text-[#8C7B6E] leading-relaxed">
+                  Are you sure you want to delete the memorial profile for &ldquo;
+                  <span className="font-semibold text-[#4A443F]">{memorialToDelete.name}</span>
+                  &rdquo;? This will permanently remove the companion, all associated memories, and past dialogue history.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#E5E0D5]">
+              <button
+                type="button"
+                id="cancel-delete-memorial-btn"
+                onClick={() => setMemorialToDelete(null)}
+                disabled={isDeletingMemorial}
+                className="px-4 py-2 rounded-full border border-[#E5E0D5] text-[#4A443F] hover:bg-[#F5F1E9] text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-delete-memorial-btn"
+                onClick={confirmDeleteMemorial}
+                disabled={isDeletingMemorial}
+                className="px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+              >
+                {isDeletingMemorial ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Memorial
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

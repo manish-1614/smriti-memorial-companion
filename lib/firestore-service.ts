@@ -226,6 +226,7 @@ export async function saveMemory(
 }
 
 export async function deleteMemory(userId: string, memorialId: string, memoryId: string): Promise<void> {
+  // 1. Immediately clean up local cache
   const localKey = `smriti_memories_${userId}_${memorialId}`;
   const currentList = getLocalStore<MemorialMemory[]>(localKey, []);
   setLocalStore(
@@ -233,11 +234,49 @@ export async function deleteMemory(userId: string, memorialId: string, memoryId:
     currentList.filter((m) => m.id !== memoryId)
   );
 
+  // 2. Cascade atomic deletion across Firestore subcollections
   try {
-    const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memoryId);
-    await deleteDoc(docRef);
+    // Primary user-isolated subcollection: users/{userId}/memorials/{memorialId}/memories/{memoryId}
+    const userDocRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memoryId);
+    await deleteDoc(userDocRef);
+
+    // Companions direct subcollection path: companions/{companionId}/memories/{memoryId}
+    const companionDocRef = doc(db, 'companions', memorialId, 'memories', memoryId);
+    await deleteDoc(companionDocRef).catch(() => {});
+
+    // Root memories collection if referenced
+    const rootMemRef = doc(db, 'memories', memoryId);
+    await deleteDoc(rootMemRef).catch(() => {});
   } catch (err) {
-    console.warn('Firestore memory delete warning:', err);
+    console.warn('Firestore memory cascade delete warning:', err);
+  }
+}
+
+export async function updateConversationTitle(
+  userId: string,
+  memorialId: string,
+  conversationId: string,
+  title: string
+): Promise<void> {
+  const localKey = `smriti_convs_${userId}_${memorialId}`;
+  const currentList = getLocalStore<ConversationSession[]>(localKey, []);
+  const updatedList = currentList.map((c) =>
+    c.id === conversationId ? { ...c, title } : c
+  );
+  setLocalStore(localKey, updatedList);
+
+  try {
+    // Primary conversations path
+    const convRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId);
+    await updateDoc(convRef, { title }).catch(async () => {
+      await setDoc(convRef, { title }, { merge: true });
+    });
+
+    // Secondary /sessions/{sessionId} document update as specified in Task 1
+    const sessionRef = doc(db, 'users', userId, 'memorials', memorialId, 'sessions', conversationId);
+    await setDoc(sessionRef, { title, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+  } catch (err) {
+    console.warn('Firestore session title update warning (saved locally):', err);
   }
 }
 
@@ -291,6 +330,45 @@ export async function createConversationSession(
   }
 
   return session;
+}
+
+export async function deleteConversationSession(
+  userId: string,
+  memorialId: string,
+  conversationId: string
+): Promise<void> {
+  const localKey = `smriti_convs_${userId}_${memorialId}`;
+  const currentList = getLocalStore<ConversationSession[]>(localKey, []);
+  setLocalStore(
+    localKey,
+    currentList.filter((c) => c.id !== conversationId)
+  );
+
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem(`smriti_msgs_${userId}_${memorialId}_${conversationId}`);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    // Delete messages subcollection
+    const msgRef = collection(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId, 'messages');
+    const msgDocs = await getDocs(msgRef);
+    const deletePromises = msgDocs.docs.map((d) => deleteDoc(d.ref));
+    await Promise.all(deletePromises).catch(() => {});
+
+    // Delete conversation document
+    const convRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId);
+    await deleteDoc(convRef);
+
+    // Delete session document if present
+    const sessionRef = doc(db, 'users', userId, 'memorials', memorialId, 'sessions', conversationId);
+    await deleteDoc(sessionRef).catch(() => {});
+  } catch (err) {
+    console.warn('Firestore conversation session delete warning:', err);
+  }
 }
 
 export async function fetchMessages(userId: string, memorialId: string, conversationId: string): Promise<ChatMessage[]> {

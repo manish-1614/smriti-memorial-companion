@@ -9,7 +9,10 @@ import {
   fetchMessages,
   saveChatMessage,
   saveMemory,
+  updateConversationTitle,
+  deleteConversationSession,
 } from '@/lib/firestore-service';
+import MemoryModal from '@/components/memory-modal';
 import {
   Send,
   Sparkles,
@@ -27,7 +30,20 @@ import {
   CheckCircle2,
   Edit2,
   Scroll,
+  Lightbulb,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
+
+interface ProposedMemory {
+  id: string;
+  title: string;
+  story: string;
+  category: MemorialMemory['category'];
+  tags: string[];
+  embedding?: number[] | null;
+  messageId: string;
+}
 
 interface CompanionChatProps {
   userId: string;
@@ -60,6 +76,16 @@ export default function CompanionChat({
   const [expandedGroundingId, setExpandedGroundingId] = useState<string | null>(null);
   const [savedMemoryNotice, setSavedMemoryNotice] = useState<{ title: string; story: string } | null>(null);
 
+  // Gated Memory Proposal States
+  const [proposedMemory, setProposedMemory] = useState<ProposedMemory | null>(null);
+  const [isSavingProposed, setIsSavingProposed] = useState(false);
+  const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
+  const [memoryToEdit, setMemoryToEdit] = useState<MemorialMemory | null>(null);
+
+  // Conversation Deletion States
+  const [conversationToDelete, setConversationToDelete] = useState<ConversationSession | null>(null);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -77,11 +103,11 @@ export default function CompanionChat({
         if (list.length > 0) {
           setActiveSession(list[0]);
         } else {
-          // Create default first session
+          // Create default first session without hardcoded counter
           const newSession = await createConversationSession(
             userId,
             profile.id,
-            `Remembering ${profile.name}`
+            'New Conversation'
           );
           if (mounted) {
             setConversations([newSession]);
@@ -132,14 +158,195 @@ export default function CompanionChat({
 
   const handleStartNewConversation = async () => {
     try {
-      const title = `Conversation ${conversations.length + 1}`;
+      // Remove sequential counters like 'Conversation N'
+      const title = 'New Conversation';
       const newSession = await createConversationSession(userId, profile.id, title);
       setConversations([newSession, ...conversations]);
       setActiveSession(newSession);
       setMessages([]);
+      setProposedMemory(null);
       setShowHistorySidebar(false);
     } catch (err) {
       console.error('Failed to create new session:', err);
+    }
+  };
+
+  // Handler for explicit consent-based memory persistence
+  const handleSaveProposedMemory = async (proposal: ProposedMemory) => {
+    setIsSavingProposed(true);
+    try {
+      const saved = await saveMemory(userId, profile.id, {
+        title: proposal.title,
+        story: proposal.story,
+        category: proposal.category,
+        tags: proposal.tags,
+        embedding: proposal.embedding || undefined,
+      });
+
+      setSavedMemoryNotice({
+        title: saved.title,
+        story: saved.story,
+      });
+
+      if (onMemoryAdded) {
+        onMemoryAdded();
+      }
+
+      setProposedMemory(null);
+
+      setTimeout(() => {
+        setSavedMemoryNotice((current) => (current?.title === saved.title ? null : current));
+      }, 5000);
+    } catch (err) {
+      console.error('Failed to save proposed memory:', err);
+    } finally {
+      setIsSavingProposed(false);
+    }
+  };
+
+  const handleOpenEditProposedMemory = (proposal: ProposedMemory) => {
+    setMemoryToEdit({
+      id: '',
+      memorialId: profile.id,
+      userId,
+      title: proposal.title,
+      story: proposal.story,
+      category: proposal.category,
+      tags: proposal.tags,
+      timePeriod: '',
+      createdAt: 0,
+      updatedAt: 0,
+      embedding: proposal.embedding || undefined,
+    });
+    setIsMemoryModalOpen(true);
+  };
+
+  const handleSaveFromModal = async (data: {
+    title: string;
+    story: string;
+    category: MemorialMemory['category'];
+    timePeriod?: string;
+    tags?: string[];
+  }) => {
+    try {
+      const saved = await saveMemory(userId, profile.id, {
+        title: data.title,
+        story: data.story,
+        category: data.category,
+        timePeriod: data.timePeriod,
+        tags: data.tags,
+        embedding: memoryToEdit?.embedding,
+      });
+
+      setSavedMemoryNotice({
+        title: saved.title,
+        story: saved.story,
+      });
+
+      if (onMemoryAdded) {
+        onMemoryAdded();
+      }
+
+      setProposedMemory(null);
+      setIsMemoryModalOpen(false);
+      setMemoryToEdit(null);
+
+      setTimeout(() => {
+        setSavedMemoryNotice((current) => (current?.title === saved.title ? null : current));
+      }, 5000);
+    } catch (err) {
+      console.error('Failed to save memory from modal:', err);
+    }
+  };
+
+  // Delete conversation session from Firestore and state while preserving all memories in the vault
+  const handleDeleteConversationConfirm = async () => {
+    if (!conversationToDelete) return;
+    setIsDeletingConversation(true);
+
+    try {
+      const targetId = conversationToDelete.id;
+      // Atomic deletion of the conversation session and its chat messages (memories remain untouched)
+      await deleteConversationSession(userId, profile.id, targetId);
+
+      const remaining = conversations.filter((c) => c.id !== targetId);
+      setConversations(remaining);
+
+      // If active session was deleted, switch to next available or create a fresh new session
+      if (activeSession?.id === targetId) {
+        if (remaining.length > 0) {
+          setActiveSession(remaining[0]);
+        } else {
+          const fresh = await createConversationSession(userId, profile.id, 'New Conversation');
+          setConversations([fresh]);
+          setActiveSession(fresh);
+        }
+      }
+
+      setConversationToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+    } finally {
+      setIsDeletingConversation(false);
+    }
+  };
+
+  // Context-aware title generation based on reasoning over the actual conversation transcript
+  const triggerContextualTitleReasoning = async (
+    currentSessionId: string,
+    historyTurns: Array<{ role: 'user' | 'assistant'; content: string }>,
+    forceReasoning: boolean = false
+  ) => {
+    try {
+      const session = conversations.find((c) => c.id === currentSessionId) || activeSession;
+      if (!session) return;
+
+      const isGeneric =
+        !session.title ||
+        session.title === 'New Conversation' ||
+        session.title === 'Conversation' ||
+        /^Conversation\s+\d+$/i.test(session.title) ||
+        session.title === `Remembering ${profile.name}` ||
+        session.title.toLowerCase().startsWith('warm greeting') ||
+        session.title.toLowerCase().startsWith('catching up') ||
+        session.title.toLowerCase().startsWith('hello');
+
+      // If title is already specific and distinct, do not overwrite after turn 4 unless forced
+      if (!isGeneric && !forceReasoning && historyTurns.length > 4) {
+        return;
+      }
+
+      const freshIdToken = await auth.currentUser?.getIdToken();
+      const titleRes = await fetch('/api/chat/title', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(freshIdToken ? { Authorization: `Bearer ${freshIdToken}` } : {}),
+        },
+        body: JSON.stringify({
+          conversationHistory: historyTurns.slice(-8),
+          profileName: profile.name,
+          currentTitle: session.title,
+        }),
+      });
+
+      if (titleRes.ok) {
+        const titleData = await titleRes.json();
+        if (titleData.title && typeof titleData.title === 'string') {
+          const generatedTitle = titleData.title.trim();
+          if (generatedTitle && generatedTitle !== session.title) {
+            setActiveSession((prev) =>
+              prev?.id === currentSessionId ? { ...prev, title: generatedTitle } : prev
+            );
+            setConversations((prev) =>
+              prev.map((c) => (c.id === currentSessionId ? { ...c, title: generatedTitle } : c))
+            );
+            await updateConversationTitle(userId, profile.id, currentSessionId, generatedTitle);
+          }
+        }
+      }
+    } catch (titleErr) {
+      console.warn('Background contextual session title reasoning error:', titleErr);
     }
   };
 
@@ -150,6 +357,13 @@ export default function CompanionChat({
     const userText = inputMessage.trim();
     setInputMessage('');
     setSending(true);
+
+    // Trigger contextual title reasoning on the first message or if title is generic
+    const currentTurnsWithUser = [
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: userText },
+    ];
+    triggerContextualTitleReasoning(activeSession.id, currentTurnsWithUser, false);
 
     // Save user message to Firestore
     try {
@@ -205,8 +419,17 @@ export default function CompanionChat({
 
       setMessages((prev) => [...prev, assistantMsgRecord]);
 
-      // Background Semantic Memory Distillation
-      // Check if user's input contains a real memory/anecdote to save into the member's permanent memory vault
+      // Re-reason title as the conversation context solidifies in early turns (turns 1-3)
+      if (messages.filter((m) => m.role === 'user').length <= 3) {
+        const fullTurns = [
+          ...currentTurnsWithUser,
+          { role: 'assistant' as const, content: reply },
+        ];
+        triggerContextualTitleReasoning(activeSession.id, fullTurns, false);
+      }
+
+      // Task 2: Background Semantic Memory Extraction (Gated / Proposal Only)
+      // Conversational dialogue must NEVER silently auto-commit a new document to /memories
       (async () => {
         try {
           const extractRes = await fetch('/api/memories/extract', {
@@ -217,38 +440,30 @@ export default function CompanionChat({
               assistantReply: reply,
               profileName: profile.name,
               relationship: profile.relationship,
-              existingMemories: memories.map((m) => ({ title: m.title, story: m.story })),
+              existingMemories: (memories || []).map((m) => ({
+                title: m.title || 'Untitled Memory',
+                story: m.story || m.content || '',
+              })),
             }),
           });
 
           if (extractRes.ok) {
             const extractData = await extractRes.json();
             if (extractData.eligible && extractData.memory) {
-              const newMem = await saveMemory(userId, profile.id, {
+              // Set proposal state for user consent; do NOT auto-persist to Firestore
+              setProposedMemory({
+                id: `prop_${Date.now()}`,
                 title: extractData.memory.title,
                 story: extractData.memory.story,
                 category: extractData.memory.category || 'anecdote',
                 tags: extractData.memory.tags || ['conversation'],
-                embedding: extractData.memory.embedding || undefined,
+                embedding: extractData.memory.embedding || null,
+                messageId: assistantMsgRecord.id,
               });
-
-              setSavedMemoryNotice({
-                title: newMem.title,
-                story: newMem.story,
-              });
-
-              if (onMemoryAdded) {
-                onMemoryAdded();
-              }
-
-              // Auto-dismiss the notice after 6 seconds
-              setTimeout(() => {
-                setSavedMemoryNotice((current) => (current?.title === newMem.title ? null : current));
-              }, 6000);
             }
           }
         } catch (memExtractErr) {
-          console.warn('Silent memory extraction check:', memExtractErr);
+          console.warn('Silent memory extraction proposal check:', memExtractErr);
         }
       })();
     } catch (error: unknown) {
@@ -306,34 +521,50 @@ export default function CompanionChat({
           {conversations.map((conv) => {
             const isActive = activeSession?.id === conv.id;
             return (
-              <button
+              <div
                 key={conv.id}
                 onClick={() => {
                   setActiveSession(conv);
                   setShowHistorySidebar(false);
                 }}
-                className={`w-full text-left p-3 rounded-2xl transition-all cursor-pointer ${
+                className={`group relative w-full flex items-center justify-between p-3 rounded-2xl transition-all cursor-pointer ${
                   isActive
                     ? 'bg-white border border-[#7D8F69]/40 text-[#4A443F] shadow-xs'
                     : 'bg-white/40 hover:bg-white/80 text-[#8C7B6E] border border-transparent'
                 }`}
               >
-                <div className="text-xs font-semibold truncate text-[#4A443F]">
-                  {conv.title || 'Conversation'}
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="text-xs font-semibold truncate text-[#4A443F]">
+                    {conv.title || 'Conversation'}
+                  </div>
+                  <div className="text-[11px] text-[#8C7B6E] truncate mt-1">
+                    {conv.lastMessageSnippet || 'No messages yet...'}
+                  </div>
+                  <div className="text-[10px] text-[#A69F95] mt-1 flex items-center gap-1">
+                    <Clock className="w-2.5 h-2.5" />
+                    {new Date(conv.lastMessageAt || conv.createdAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </div>
                 </div>
-                <div className="text-[11px] text-[#8C7B6E] truncate mt-1">
-                  {conv.lastMessageSnippet || 'No messages yet...'}
-                </div>
-                <div className="text-[10px] text-[#A69F95] mt-1 flex items-center gap-1">
-                  <Clock className="w-2.5 h-2.5" />
-                  {new Date(conv.lastMessageAt || conv.createdAt).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </div>
-              </button>
+
+                <button
+                  id={`delete-conv-btn-${conv.id}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConversationToDelete(conv);
+                  }}
+                  className="opacity-80 sm:opacity-0 group-hover:opacity-100 p-1.5 rounded-xl text-[#A69F95] hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer shrink-0"
+                  title="Delete this conversation (memories in vault remain preserved)"
+                  aria-label="Delete conversation"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             );
           })}
         </div>
@@ -567,6 +798,70 @@ export default function CompanionChat({
                     </div>
                   )}
 
+                  {/* Task 2: Explicit Memory Proposal (UI Gate) */}
+                  {!isUser && proposedMemory && proposedMemory.messageId === msg.id && (
+                    <div
+                      id={`proposed-memory-card-${proposedMemory.id}`}
+                      className="w-full mt-2 p-3.5 rounded-2xl bg-[#F5EFE6] border border-[#E0D8C8] text-[#4A443F] shadow-xs space-y-2.5 animate-in fade-in slide-in-from-top-1"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-6 h-6 rounded-lg bg-[#7D8F69]/20 text-[#7D8F69] flex items-center justify-center shrink-0 mt-0.5">
+                          <Lightbulb className="w-3.5 h-3.5 text-[#7D8F69]" />
+                        </div>
+                        <div className="space-y-1 flex-1">
+                          <div className="text-xs font-serif font-bold text-[#4A443F]">
+                            Save this as a permanent memory for {profile.name}?
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-white/90 border border-[#E5E0D5] text-[11px] space-y-0.5">
+                            <span className="font-semibold text-[#7D8F69] block">{proposedMemory.title}</span>
+                            <span className="text-[#6E645C] block leading-relaxed">{proposedMemory.story}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#E0D8C8]/60">
+                        <button
+                          id="dismiss-proposed-memory-btn"
+                          type="button"
+                          onClick={() => setProposedMemory(null)}
+                          disabled={isSavingProposed}
+                          className="px-2.5 py-1 rounded-full text-xs text-[#8C7B6E] hover:text-[#4A443F] hover:bg-black/5 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          Dismiss
+                        </button>
+                        <button
+                          id="review-proposed-memory-btn"
+                          type="button"
+                          onClick={() => handleOpenEditProposedMemory(proposedMemory)}
+                          disabled={isSavingProposed}
+                          className="px-3 py-1 rounded-full border border-[#D5CFBF] bg-white hover:bg-[#FAF8F5] text-xs font-medium text-[#4A443F] inline-flex items-center gap-1 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                        >
+                          <Edit2 className="w-3 h-3 text-[#8C7B6E]" />
+                          Review / Edit
+                        </button>
+                        <button
+                          id="confirm-save-proposed-memory-btn"
+                          type="button"
+                          onClick={() => handleSaveProposedMemory(proposedMemory)}
+                          disabled={isSavingProposed}
+                          className="px-3.5 py-1 rounded-full bg-[#7D8F69] hover:bg-[#6E7E5B] text-white text-xs font-medium inline-flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingProposed ? (
+                            <>
+                              <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <BookmarkPlus className="w-3.5 h-3.5" />
+                              Save Memory
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <span className="text-[10px] text-[#A69F95] px-1">
                     {new Date(msg.createdAt).toLocaleTimeString([], {
                       hour: '2-digit',
@@ -651,6 +946,84 @@ export default function CompanionChat({
           </div>
         </div>
       </div>
+
+      {/* Memory Review / Edit Modal for Gated Proposal */}
+      {isMemoryModalOpen && (
+        <MemoryModal
+          isOpen={isMemoryModalOpen}
+          onClose={() => {
+            setIsMemoryModalOpen(false);
+            setMemoryToEdit(null);
+          }}
+          onSave={handleSaveFromModal}
+          initialData={memoryToEdit}
+          selectedMemory={memoryToEdit}
+          memorialName={profile.name}
+        />
+      )}
+
+      {/* Delete Conversation Confirmation Modal */}
+      {conversationToDelete && (
+        <div
+          id="delete-conversation-modal"
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-[#FDFBF7] border border-[#E5E0D5] rounded-3xl max-w-md w-full p-6 shadow-xl space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200/60 flex items-center justify-center shrink-0 text-rose-600">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-serif font-bold text-[#4A443F]">
+                  Delete Conversation
+                </h3>
+                <p className="text-xs text-[#8C7B6E]">
+                  Are you sure you want to delete <span className="font-semibold text-[#4A443F]">&ldquo;{conversationToDelete.title || 'this conversation'}&rdquo;</span>?
+                </p>
+              </div>
+            </div>
+
+            {/* Prominent reassurance regarding memories preservation */}
+            <div className="p-3.5 rounded-2xl bg-[#7D8F69]/10 border border-[#7D8F69]/20 flex items-start gap-2.5 text-xs text-[#4A443F]">
+              <ShieldCheck className="w-4 h-4 text-[#7D8F69] shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                <span className="font-semibold text-[#5A6949]">Memories Vault Untouched:</span> Deleting this dialogue removes only the chat exchange. All memories saved, referenced, or created in {profile.name}&apos;s memory vault remain completely intact and preserved.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#E5E0D5]/70">
+              <button
+                type="button"
+                id="cancel-delete-conv-btn"
+                onClick={() => setConversationToDelete(null)}
+                disabled={isDeletingConversation}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-delete-conv-btn"
+                onClick={handleDeleteConversationConfirm}
+                disabled={isDeletingConversation}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium transition-colors cursor-pointer shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {isDeletingConversation ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Dialogue</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

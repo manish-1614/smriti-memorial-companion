@@ -10,10 +10,13 @@ Smriti is an authentic, user-authenticated digital memorial companion applicatio
 2. **Server-Side API Route Protection**: All Gemini AI routes (`/api/chat`, `/api/memories/embed`, `/api/memories/extract`) verify the caller's Firebase ID token via Firebase Admin SDK before processing, rejecting unauthorized calls with HTTP 401.
 3. **Memorial Profiles**: Individual profiles with avatar markers, relationship anchors, personality traits, and custom voice/tone notes.
 4. **Memory Vector Embeddings**: Cherished stories, anecdotes, quotes, routines, and life lessons converted into vector embeddings via Gemini `text-embedding-004` and stored in Cloud Firestore.
-5. **Traceable Grounded Companion**: Real-time companion chat grounded in personal memories via application-level cosine similarity vector ranking, strictly enforcing anti-fabrication guidelines.
-6. **Traceability & Grounding Badges**: Visual inspection pills in chat showing the exact memory anchors and vector similarity scores that informed each response.
-7. **Chronological Dialogue History**: Multi-session conversation management saved securely under user-isolated paths in Cloud Firestore.
-8. **Production Cloud Run Container**: Multi-stage standalone `Dockerfile` and Cloud Run deployment pipeline listening on `$PORT` (default 8080).
+5. **Semantic Conversation Session Titles**: Generates concise, context-aware 3-6 word dialogue titles (e.g. "Walks Near India Gate", "Exam Days in Varanasi") on the first user message using Gemini, eliminating sequential numbers.
+6. **Explicit Gated Memory Consent**: In-chat memory extraction proposes memories via an interactive action card where users explicitly "Save Memory", "Review / Edit", or "Dismiss" — zero unconfirmed auto-writes to Firestore.
+7. **Atomic Cascade Deletion**: Deleting a memory cleanly wipes documents across owner paths (`/users/.../memories`), companion paths (`/companions/.../memories`), and root references, preventing ghost embeddings or broken retrieval states.
+8. **Traceable Grounded Companion**: Real-time companion chat grounded in personal memories via application-level cosine similarity vector ranking, strictly enforcing anti-fabrication guidelines.
+9. **Traceability & Grounding Badges**: Visual inspection pills in chat showing the exact memory anchors and vector similarity scores that informed each response.
+10. **Chronological Dialogue History**: Multi-session conversation management saved securely under user-isolated paths in Cloud Firestore.
+11. **Production Cloud Run Container**: Multi-stage standalone `Dockerfile` and Cloud Run deployment pipeline listening on `$PORT` (default 8080).
 
 ---
 
@@ -52,7 +55,29 @@ service cloud.firestore {
             allow read, write: if request.auth != null && request.auth.uid == userId;
           }
         }
+
+        match /sessions/{sessionId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
       }
+    }
+
+    // Companion-linked paths (isolated by user or authenticated companion context)
+    match /companions/{companionId} {
+      allow read, write: if request.auth != null;
+
+      match /memories/{memoryId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Direct root collections with owner check
+    match /memories/{memoryId} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /sessions/{sessionId} {
+      allow read, write: if request.auth != null;
     }
   }
 }

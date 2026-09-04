@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 
     // Step 2: Format recorded memories for grounding
     const formattedMemories = memories
-      .filter((m) => m && m.story)
+      .filter((m) => m && (m.story || m.content))
       .map((m, idx) => {
         return `[Memory #${idx + 1}]
 Title: ${m.title || 'Untitled Memory'}
@@ -78,7 +78,7 @@ Category: ${m.category || 'General'}
 Time Period / Date: ${m.timePeriod || 'Unspecified'}
 Tags: ${m.tags?.join(', ') || 'None'}
 Story / Details:
-${m.story}`;
+${m.story || m.content || ''}`;
       })
       .join('\n---\n');
 

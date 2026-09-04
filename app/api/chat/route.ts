@@ -3,6 +3,7 @@ import { getGeminiClient, EMBEDDING_MODEL, generateContentWithResilience } from 
 import { cosineSimilarity } from '@/lib/vector';
 import { MemorialProfile, MemorialMemory } from '@/lib/types';
 import { verifyAuthToken } from '@/lib/firebase-admin';
+import { analyzeSemanticLanguageAndTone } from '@/lib/language-analysis';
 
 interface ChatRequestBody {
   profile: MemorialProfile;
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     if (queryEmbedding.length > 0 && Array.isArray(memories) && memories.length > 0) {
       const scoredList: ScoredMemory[] = memories
-        .filter((m) => m && m.story)
+        .filter((m) => m && (m.story || m.content))
         .map((m) => {
           let score = 0;
           if (m.embedding && Array.isArray(m.embedding) && m.embedding.length === queryEmbedding.length) {
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
           } else {
             // Text keyword overlap fallback if memory has no precomputed vector
             const queryWords = message.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-            const textToSearch = `${m.title} ${m.story}`.toLowerCase();
+            const textToSearch = `${m.title || ''} ${m.story || m.content || ''}`.toLowerCase();
             const matches = queryWords.filter((w) => textToSearch.includes(w));
             score = queryWords.length > 0 ? matches.length / queryWords.length : 0.1;
           }
@@ -93,12 +94,15 @@ Title: ${memory.title || 'Untitled Memory'}
 Category: ${memory.category || 'General'}
 Time Period / Date: ${memory.timePeriod || 'Unspecified'}
 Story / Details:
-${memory.story}
+${memory.story || memory.content || ''}
 (Relevance Score: ${(score * 100).toFixed(1)}%)
 `;
     }).join('\n---\n');
 
-    // Step 4: Construct system instructions enforcing direct 1st-person active voice, persona grounding, and concise length
+    // Step 4: Perform pre-generation Semantic Language and Tone Analysis
+    const languageToneAnalysis = analyzeSemanticLanguageAndTone(message);
+
+    // Step 5: Construct system instructions enforcing active voice, persona grounding, and verified language/tone lock
     const traits = profile.personalityTraits?.length ? profile.personalityTraits.join(', ') : 'warm, authentic, thoughtful, grounded';
     const toneNote = profile.toneDescription ? `Tone Guidance: ${profile.toneDescription}` : '';
     const bioNote = profile.bioSnippet ? `Background Context: ${profile.bioSnippet}` : '';
@@ -118,6 +122,26 @@ CONCISENESS & NATURAL CONVERSATION LENGTH:
 - Keep your replies natural, warm, and CONCISE (usually 2 to 4 sentences). Do NOT produce lengthy essays, verbose monologues, or long multi-paragraph lectures.
 - Speak only the words you would naturally say in a heartwarming, genuine conversation.
 
+================================================================================
+CRITICAL: PRE-GENERATION SEMANTIC LANGUAGE & TONE LOCK
+================================================================================
+The user's current message has been analyzed:
+- DETECTED LANGUAGE MODE: ${languageToneAnalysis.languageLabel}
+- INPUT SCRIPT: ${languageToneAnalysis.script}
+- DETECTED EMOTIONAL TONE: ${languageToneAnalysis.detectedTone}
+- TONE GUIDANCE: ${languageToneAnalysis.toneGuidance}
+
+MANDATORY SCRIPT & CODE-SWITCHING DIRECTIVE:
+${languageToneAnalysis.targetLanguageDirective}
+${languageToneAnalysis.exampleStyleSnippet ? `Example style: "${languageToneAnalysis.exampleStyleSnippet}"` : ''}
+
+DYNAMIC MULTILINGUAL CODE-SWITCHING RULES (HIGHEST PRIORITY):
+1. INDEPENDENT TURN EVALUATION: ALWAYS formulate your response in the exact language mode detected for THIS TURN above. NEVER maintain an older language simply because prior turns were in that language!
+2. HINGLISH RULE: When the user speaks in Hinglish (e.g. "Kya aapko yaad hai...", "Kitna maza aata tha wahan..."), YOU MUST RESPOND IN NATURAL HINGLISH using the Roman/Latin script. NEVER default or drop into pure English when the user speaks Hinglish! NEVER switch to Devanagari script for Hinglish!
+3. HINDI DEVANAGARI RULE: When the user speaks in Hindi using Devanagari script (e.g. "नमस्ते", "क्या आपको याद है"), YOU MUST RESPOND IN HINDI USING DEVANAGARI SCRIPT.
+4. ENGLISH RULE: When the user speaks in English, respond in heartfelt English.
+================================================================================
+
 GROUNDING, ANTI-FABRICATION & HONESTY (STRICT PROTOCOL):
 - Ground your stories, life experiences, anecdotes, and favorites strictly in the recorded memories below.
 - User Mentions of Unrecorded Events / Details: If the user mentions or asks about a specific memory, event, place, object, date, or detail that is NOT found in the recorded memories list below:
@@ -133,25 +157,13 @@ There are two distinct sources of information in this conversation: (a) your STO
 - When asked to list, summarize, or recall your memories, you must ONLY reference items that literally appear in the STORED MEMORIES list below. Do not include anything the user mentioned in conversation unless it also independently appears in STORED MEMORIES.
 - If you are unsure whether something is a real stored memory or something the user brought up in conversation, treat it as NOT a stored memory.
 
-LANGUAGE & TONE MATCHING:
-For EVERY message, independently determine the language and script of the user's MOST RECENT message only — do not assume the language continues from earlier turns in this conversation. Specifically:
-- If the current message is written in Devanagari script, respond in Hindi (Devanagari script).
-- If the current message is written in Roman script using Hindi/Urdu vocabulary or sentence structure (Hinglish), respond in Hinglish using Roman script — do NOT switch to Devanagari Hindi just because earlier turns were in Hindi.
-- If the current message is in Bengali, respond in Bengali.
-- If the current message is in English, respond in English.
-- If the message mixes languages, mirror that same mix and style naturally.
-Re-evaluate this fresh on every single incoming message, regardless of what language previous turns were in. This instruction governs HOW you speak, not WHAT you are grounded in — the grounding, honesty, and Memory Source Discipline rules above still apply fully regardless of language or script.
-
-EMOTIONAL ATTUNEMENT:
-Pay attention to the emotional tone of the user's message. If it reads heavy, sad, or vulnerable, slow down, respond with extra gentleness and warmth, and avoid being overly cheerful or brisk. If it reads lighthearted or playful, feel free to match that energy with warmth and humor consistent with the personality traits. This adjusts your delivery and pacing only — it does not change what memories you draw on or permit any fabrication.
-
 YOUR RECORDED MEMORIES & LIFE EXPERIENCES:
 <memories>
 ${formattedMemories || 'No specific memories recorded yet. Rely warmly on your persona traits and invite them to share a memory.'}
 </memories>
 `;
 
-    // Step 5: Format previous messages for chat history
+    // Step 6: Format previous messages for chat history
     const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
 
     // Append up to last 10 turns of history
@@ -171,7 +183,7 @@ ${formattedMemories || 'No specific memories recorded yet. Rely warmly on your p
       parts: [{ text: message.trim() }],
     });
 
-    // Step 6: Generate companion response via Gemini with multi-model fallback & backoff
+    // Step 7: Generate companion response via Gemini with multi-model fallback & backoff
     const replyText = await generateContentWithResilience({
       contents,
       systemInstruction,
@@ -190,6 +202,11 @@ ${formattedMemories || 'No specific memories recorded yet. Rely warmly on your p
     return NextResponse.json({
       reply: replyText,
       groundedMemories: groundedReferences,
+      languageAnalysis: {
+        detectedLanguage: languageToneAnalysis.detectedLanguage,
+        languageLabel: languageToneAnalysis.languageLabel,
+        detectedTone: languageToneAnalysis.detectedTone,
+      },
     });
   } catch (err: unknown) {
     console.error('Chat generation error:', err);

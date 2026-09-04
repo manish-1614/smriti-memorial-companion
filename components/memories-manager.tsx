@@ -46,27 +46,37 @@ export default function MemoriesManager({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [memoryToDelete, setMemoryToDelete] = useState<MemorialMemory | null>(null);
 
   const filteredMemories = memories.filter((mem) => {
-    const matchesCategory = categoryFilter === 'all' || mem.category === categoryFilter;
-    const q = searchQuery.toLowerCase();
-    const matchesSearch =
-      !q ||
-      mem.title.toLowerCase().includes(q) ||
-      mem.story.toLowerCase().includes(q) ||
-      (mem.tags && mem.tags.some((t) => t.toLowerCase().includes(q))) ||
-      (mem.timePeriod && mem.timePeriod.toLowerCase().includes(q));
-    return matchesCategory && matchesSearch;
+    if (!mem) return false;
+    const cat = mem.category || mem.classification || 'anecdote';
+    const matchesCategory = categoryFilter === 'all' || cat === categoryFilter;
+    const q = searchQuery.toLowerCase().trim();
+    if (!matchesCategory) return false;
+    if (!q) return true;
+
+    const titleText = (mem.title || '').toLowerCase();
+    const storyText = (mem.story || mem.content || '').toLowerCase();
+    const tagsMatch =
+      Array.isArray(mem.tags) &&
+      mem.tags.some((t) => typeof t === 'string' && t.toLowerCase().includes(q));
+    const timeMatch = (mem.timePeriod || mem.approximateYear || '').toLowerCase().includes(q);
+
+    return titleText.includes(q) || storyText.includes(q) || tagsMatch || timeMatch;
   });
 
-  const handleDelete = async (memoryId: string) => {
-    if (confirm('Are you sure you want to delete this memory? This cannot be undone.')) {
-      setDeletingId(memoryId);
-      try {
-        await onDeleteMemory(memoryId);
-      } finally {
-        setDeletingId(null);
-      }
+  const confirmDelete = async () => {
+    if (!memoryToDelete) return;
+    const memId = memoryToDelete.id;
+    setDeletingId(memId);
+    try {
+      await onDeleteMemory(memId);
+      setMemoryToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete memory:', err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -216,9 +226,11 @@ export default function MemoriesManager({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <span className="text-[11px] uppercase tracking-wider font-semibold px-2.5 py-0.5 rounded-full bg-[#F0EBE0] text-[#7D8F69] border border-[#E5E0D5]">
-                        {mem.category}
+                        {mem.category || mem.classification || 'anecdote'}
                       </span>
-                      <h3 className="text-base font-serif font-bold text-[#4A443F] mt-2">{mem.title}</h3>
+                      <h3 className="text-base font-serif font-bold text-[#4A443F] mt-2">
+                        {mem.title || 'Untitled Memory'}
+                      </h3>
                     </div>
 
                     <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
@@ -230,7 +242,8 @@ export default function MemoriesManager({
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => handleDelete(mem.id)}
+                        id={`delete-memory-btn-${mem.id}`}
+                        onClick={() => setMemoryToDelete(mem)}
                         disabled={deletingId === mem.id}
                         className="p-1.5 rounded-lg text-[#8C7B6E] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer disabled:opacity-50"
                         title="Delete Memory"
@@ -241,16 +254,16 @@ export default function MemoriesManager({
                   </div>
 
                   <p className="text-xs text-[#4A443F] leading-relaxed whitespace-pre-wrap line-clamp-6">
-                    {mem.story}
+                    {mem.story || mem.content || 'No memory details recorded.'}
                   </p>
                 </div>
 
                 <div className="pt-3 border-t border-[#E5E0D5] flex items-center justify-between text-[11px] text-[#8C7B6E]">
                   <div className="flex items-center gap-2">
-                    {mem.timePeriod && (
+                    {(mem.timePeriod || mem.approximateYear) && (
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-[#A69F95]" />
-                        {mem.timePeriod}
+                        {mem.timePeriod || mem.approximateYear}
                       </span>
                     )}
 
@@ -283,6 +296,63 @@ export default function MemoriesManager({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* In-App Delete Confirmation Modal (Iframe-Safe) */}
+      {memoryToDelete && (
+        <div
+          id="delete-memory-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs"
+        >
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E5E0D5] shadow-xl space-y-4 font-sans animate-in fade-in zoom-in-95">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-serif font-bold text-[#4A443F]">Delete Memory</h3>
+                <p className="text-xs text-[#8C7B6E] leading-relaxed">
+                  Are you sure you want to delete &ldquo;
+                  <span className="font-semibold text-[#4A443F]">
+                    {memoryToDelete.title || 'this memory'}
+                  </span>
+                  &rdquo;? This will permanently remove it from {profile.name}&apos;s memory vault.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#E5E0D5]">
+              <button
+                type="button"
+                id="cancel-delete-memory-btn"
+                onClick={() => setMemoryToDelete(null)}
+                disabled={deletingId === memoryToDelete.id}
+                className="px-4 py-2 rounded-full border border-[#E5E0D5] text-[#4A443F] hover:bg-[#F5F1E9] text-xs font-medium cursor-pointer transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-delete-memory-btn"
+                onClick={confirmDelete}
+                disabled={deletingId === memoryToDelete.id}
+                className="px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+              >
+                {deletingId === memoryToDelete.id ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Memory
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
