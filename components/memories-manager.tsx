@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Tag,
   CheckCircle,
+  Scroll,
 } from 'lucide-react';
 
 interface MemoriesManagerProps {
@@ -23,6 +24,8 @@ interface MemoriesManagerProps {
   memories: MemorialMemory[];
   onAddMemoryClick: () => void;
   onEditMemoryClick: (memory: MemorialMemory) => void;
+  onEditProfileClick?: (profile: MemorialProfile) => void;
+  onGenerateLetterClick?: () => void;
   onDeleteMemory: (memoryId: string) => Promise<void>;
   onOpenChat: () => void;
   onBackToDashboard: () => void;
@@ -34,6 +37,8 @@ export default function MemoriesManager({
   memories,
   onAddMemoryClick,
   onEditMemoryClick,
+  onEditProfileClick,
+  onGenerateLetterClick,
   onDeleteMemory,
   onOpenChat,
   onBackToDashboard,
@@ -93,6 +98,15 @@ export default function MemoriesManager({
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#7D8F69]/10 border border-[#7D8F69]/20 text-[#7D8F69] font-medium">
                 {profile.relationship}
               </span>
+              {onEditProfileClick && (
+                <button
+                  onClick={() => onEditProfileClick(profile)}
+                  className="p-1 rounded-lg text-[#8C7B6E] hover:text-[#4A443F] hover:bg-[#E5E0D5]/50 transition-colors cursor-pointer"
+                  title="Edit Companion Profile"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
             <p className="text-xs text-[#8C7B6E] mt-1">
               Memory Collection &bull; {memories.length} stories recorded
@@ -100,7 +114,17 @@ export default function MemoriesManager({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onGenerateLetterClick && (
+            <button
+              id="generate-letter-from-memories-btn"
+              onClick={onGenerateLetterClick}
+              className="px-4 py-2.5 rounded-full bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] inline-flex items-center gap-2 cursor-pointer transition-colors shadow-xs"
+            >
+              <Scroll className="w-4 h-4 text-[#7D8F69]" />
+              Generate a Letter
+            </button>
+          )}
           <button
             id="start-chat-from-memories-btn"
             onClick={onOpenChat}

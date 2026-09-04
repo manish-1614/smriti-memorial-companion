@@ -2,10 +2,10 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { Flame, Sparkles, ShieldCheck, Heart, ArrowRight, BookOpen, MessageSquare, Compass, Info } from 'lucide-react';
+import { Flame, Sparkles, ShieldCheck, Heart, ArrowRight, BookOpen, MessageSquare, Info } from 'lucide-react';
 
 export default function LandingView() {
-  const { signInWithGoogle, signInAsGuest, authError, clearAuthError } = useAuth();
+  const { signInWithGoogle, authError, clearAuthError } = useAuth();
   const [signingIn, setSigningIn] = useState(false);
 
   const handleSignIn = async () => {
@@ -37,17 +37,10 @@ export default function LandingView() {
 
         <div className="flex items-center gap-2.5">
           <button
-            id="header-guest-btn"
-            onClick={signInAsGuest}
-            className="px-3.5 py-1.5 rounded-full text-xs text-[#8C7B6E] hover:text-[#4A443F] hover:bg-[#F5F1E9] border border-[#E5E0D5] cursor-pointer transition-colors"
-          >
-            Guest Preview
-          </button>
-          <button
             id="header-sign-in-btn"
             onClick={handleSignIn}
             disabled={signingIn}
-            className="px-4 py-2 rounded-full bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] inline-flex items-center gap-2 cursor-pointer transition-colors shadow-xs"
+            className="px-4 py-2 rounded-full bg-[#7D8F69] hover:bg-[#6E7E5B] text-white text-xs font-medium inline-flex items-center gap-2 cursor-pointer transition-colors shadow-xs disabled:opacity-50"
           >
             {signingIn ? 'Connecting...' : 'Sign In with Google'}
           </button>
@@ -84,15 +77,6 @@ export default function LandingView() {
               </button>
             </div>
             <p className="text-amber-950/80 leading-relaxed">{authError}</p>
-            <div className="pt-1">
-              <button
-                onClick={signInAsGuest}
-                className="px-3.5 py-1.5 rounded-full bg-amber-800 text-white font-medium hover:bg-amber-900 text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <Compass className="w-3.5 h-3.5" />
-                Enter Guest Sanctuary Instantly
-              </button>
-            </div>
           </div>
         )}
 
@@ -114,15 +98,6 @@ export default function LandingView() {
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
-          </button>
-
-          <button
-            id="hero-guest-btn"
-            onClick={signInAsGuest}
-            className="w-full sm:w-auto px-6 py-3.5 rounded-full bg-white hover:bg-[#F5F1E9] text-[#4A443F] font-medium text-sm border border-[#E5E0D5] inline-flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
-          >
-            <Compass className="w-4 h-4 text-[#7D8F69]" />
-            Enter Guest Sanctuary (Instant Preview)
           </button>
         </div>
 

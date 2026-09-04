@@ -13,6 +13,7 @@ import {
 } from '@/lib/firestore-service';
 import MemorialModal from './memorial-modal';
 import MemoryModal from './memory-modal';
+import LetterModal from './letter-modal';
 import CompanionChat from './companion-chat';
 import MemoriesManager from './memories-manager';
 import {
@@ -26,6 +27,7 @@ import {
   Edit,
   Flame,
   ChevronRight,
+  Scroll,
 } from 'lucide-react';
 
 export default function SmritiDashboard() {
@@ -44,6 +46,11 @@ export default function SmritiDashboard() {
 
   const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
   const [editingMemory, setEditingMemory] = useState<MemorialMemory | null>(null);
+
+  // Letter generation modal state
+  const [isLetterModalOpen, setIsLetterModalOpen] = useState(false);
+  const [letterProfile, setLetterProfile] = useState<MemorialProfile | null>(null);
+  const [letterMemories, setLetterMemories] = useState<MemorialMemory[]>([]);
 
   // Load user's memorials on mount or user change
   useEffect(() => {
@@ -156,6 +163,23 @@ export default function SmritiDashboard() {
   const handleOpenMemories = (memorial: MemorialProfile) => {
     setSelectedMemorial(memorial);
     setActiveView('memories');
+  };
+
+  // Open letter generation modal
+  const handleOpenLetter = async (memorial: MemorialProfile) => {
+    setLetterProfile(memorial);
+    if (selectedMemorial?.id === memorial.id && selectedMemories.length > 0) {
+      setLetterMemories(selectedMemories);
+    } else if (user) {
+      try {
+        const mems = await fetchMemoriesForMemorial(user.uid, memorial.id);
+        setLetterMemories(mems);
+      } catch (e) {
+        console.warn('Could not prefetch memories for letter modal:', e);
+        setLetterMemories([]);
+      }
+    }
+    setIsLetterModalOpen(true);
   };
 
   return (
@@ -381,20 +405,30 @@ export default function SmritiDashboard() {
                       </div>
 
                       {/* Action Buttons */}
-                      <div className="grid grid-cols-2 gap-2 pt-3 border-t border-[#E5E0D5]">
+                      <div className="space-y-2 pt-3 border-t border-[#E5E0D5]">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => handleOpenMemories(profile)}
+                            className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                          >
+                            <BookOpen className="w-3.5 h-3.5 text-[#7D8F69]" />
+                            Memories
+                          </button>
+                          <button
+                            onClick={() => handleOpenChat(profile)}
+                            className="py-2.5 px-3 rounded-xl bg-[#7D8F69] hover:bg-[#6E7E5B] text-white text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            Converse
+                          </button>
+                        </div>
                         <button
-                          onClick={() => handleOpenMemories(profile)}
-                          className="py-2.5 px-3 rounded-xl bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                          id={`generate-letter-btn-${profile.id}`}
+                          onClick={() => handleOpenLetter(profile)}
+                          className="w-full py-2 px-3 rounded-xl bg-[#F0EBE0] hover:bg-[#E5E0D5] text-[#4A443F] text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-colors border border-[#E5E0D5]"
                         >
-                          <BookOpen className="w-3.5 h-3.5 text-[#7D8F69]" />
-                          Memories
-                        </button>
-                        <button
-                          onClick={() => handleOpenChat(profile)}
-                          className="py-2.5 px-3 rounded-xl bg-[#7D8F69] hover:bg-[#6E7E5B] text-white text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          Converse
+                          <Scroll className="w-3.5 h-3.5 text-[#7D8F69]" />
+                          Generate a Letter
                         </button>
                       </div>
                     </div>
@@ -413,6 +447,11 @@ export default function SmritiDashboard() {
             memories={selectedMemories}
             onBack={() => setActiveView('dashboard')}
             onOpenMemoryTab={() => setActiveView('memories')}
+            onEditProfileClick={(prof) => {
+              setEditingMemorial(prof);
+              setIsMemorialModalOpen(true);
+            }}
+            onGenerateLetterClick={() => handleOpenLetter(selectedMemorial)}
             onMemoryAdded={() => refreshMemories(selectedMemorial.id)}
           />
         )}
@@ -431,6 +470,11 @@ export default function SmritiDashboard() {
               setEditingMemory(mem);
               setIsMemoryModalOpen(true);
             }}
+            onEditProfileClick={(prof) => {
+              setEditingMemorial(prof);
+              setIsMemorialModalOpen(true);
+            }}
+            onGenerateLetterClick={() => handleOpenLetter(selectedMemorial)}
             onDeleteMemory={handleDeleteMemory}
             onOpenChat={() => setActiveView('chat')}
             onBackToDashboard={() => setActiveView('dashboard')}
@@ -441,21 +485,40 @@ export default function SmritiDashboard() {
       {/* Memorial Edit/Create Modal */}
       <MemorialModal
         isOpen={isMemorialModalOpen}
-        onClose={() => setIsMemorialModalOpen(false)}
+        onClose={() => {
+          setIsMemorialModalOpen(false);
+          setEditingMemorial(null);
+        }}
         onSave={handleSaveMemorial}
         initialData={editingMemorial}
+        companion={editingMemorial}
       />
 
       {/* Memory Edit/Create Modal */}
       {selectedMemorial && (
         <MemoryModal
           isOpen={isMemoryModalOpen}
-          onClose={() => setIsMemoryModalOpen(false)}
+          onClose={() => {
+            setIsMemoryModalOpen(false);
+            setEditingMemory(null);
+          }}
           onSave={handleSaveMemory}
           initialData={editingMemory}
+          selectedMemory={editingMemory}
           memorialName={selectedMemorial.name}
         />
       )}
+
+      {/* Letter From Them Modal */}
+      <LetterModal
+        isOpen={isLetterModalOpen}
+        onClose={() => {
+          setIsLetterModalOpen(false);
+          setLetterProfile(null);
+        }}
+        profile={letterProfile || selectedMemorial}
+        memories={letterMemories.length > 0 ? letterMemories : selectedMemories}
+      />
     </div>
   );
 }

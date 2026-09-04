@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { MemorialProfile, MemorialMemory, ChatMessage, ConversationSession } from '@/lib/types';
+import { auth } from '@/lib/firebase';
 import {
   fetchConversations,
   createConversationSession,
@@ -24,6 +25,8 @@ import {
   ChevronUp,
   BookmarkPlus,
   CheckCircle2,
+  Edit2,
+  Scroll,
 } from 'lucide-react';
 
 interface CompanionChatProps {
@@ -32,6 +35,8 @@ interface CompanionChatProps {
   memories: MemorialMemory[];
   onBack: () => void;
   onOpenMemoryTab: () => void;
+  onEditProfileClick?: (profile: MemorialProfile) => void;
+  onGenerateLetterClick?: () => void;
   onMemoryAdded?: () => void;
 }
 
@@ -41,6 +46,8 @@ export default function CompanionChat({
   memories,
   onBack,
   onOpenMemoryTab,
+  onEditProfileClick,
+  onGenerateLetterClick,
   onMemoryAdded,
 }: CompanionChatProps) {
   const [conversations, setConversations] = useState<ConversationSession[]>([]);
@@ -152,10 +159,17 @@ export default function CompanionChat({
       });
       setMessages((prev) => [...prev, userMsgRecord]);
 
+      // Obtain fresh Firebase ID token
+      const idToken = await auth.currentUser?.getIdToken();
+      const authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+      };
+
       // Call server-side chat API route with memory embeddings & grounding context
       const chatRes = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({
           profile,
           memories,
@@ -197,7 +211,7 @@ export default function CompanionChat({
         try {
           const extractRes = await fetch('/api/memories/extract', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders,
             body: JSON.stringify({
               userMessage: userText,
               assistantReply: reply,
@@ -363,6 +377,15 @@ export default function CompanionChat({
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#F0EBE0] text-[#8C7B6E] border border-[#E5E0D5]">
                   {profile.relationship}
                 </span>
+                {onEditProfileClick && (
+                  <button
+                    onClick={() => onEditProfileClick(profile)}
+                    className="p-1 rounded-lg text-[#8C7B6E] hover:text-[#4A443F] hover:bg-[#E5E0D5]/50 transition-colors cursor-pointer"
+                    title="Edit Companion Profile"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-2 text-[11px] text-[#8C7B6E]">
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#7D8F69] animate-pulse" />
@@ -379,6 +402,17 @@ export default function CompanionChat({
             >
               <History className="w-4 h-4" />
             </button>
+            {onGenerateLetterClick && (
+              <button
+                id="generate-letter-chat-header-btn"
+                onClick={onGenerateLetterClick}
+                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] cursor-pointer shadow-xs transition-colors"
+                title="Generate a heartfelt letter from this companion"
+              >
+                <Scroll className="w-3.5 h-3.5 text-[#7D8F69]" />
+                Letter From Them
+              </button>
+            )}
             <button
               onClick={onOpenMemoryTab}
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-[#F5F1E9] text-[#4A443F] text-xs font-medium border border-[#E5E0D5] cursor-pointer shadow-xs transition-colors"

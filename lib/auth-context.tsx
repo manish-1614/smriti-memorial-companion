@@ -9,15 +9,14 @@ export interface AppUser {
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
-  isGuest?: boolean;
 }
 
 interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
-  signInAsGuest: () => void;
   logOut: () => Promise<void>;
+  getIdToken: () => Promise<string | null>;
   authError: string | null;
   clearAuthError: () => void;
 }
@@ -26,13 +25,11 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   signInWithGoogle: async () => {},
-  signInAsGuest: () => {},
   logOut: async () => {},
+  getIdToken: async () => null,
   authError: null,
   clearAuthError: () => {},
 });
-
-const GUEST_STORAGE_KEY = 'smriti_guest_session';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -40,17 +37,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check if guest user was previously active
-    const savedGuest = typeof window !== 'undefined' ? localStorage.getItem(GUEST_STORAGE_KEY) : null;
-    let initialGuest: AppUser | null = null;
-    if (savedGuest) {
-      try {
-        initialGuest = JSON.parse(savedGuest);
-      } catch {
-        // ignore invalid json
-      }
-    }
-
     const unsubscribe = onAuthStateChanged(
       auth,
       (currentUser) => {
@@ -60,14 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             displayName: currentUser.displayName,
             email: currentUser.email,
             photoURL: currentUser.photoURL,
-            isGuest: false,
           });
-          // Remove guest token if real user logs in
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem(GUEST_STORAGE_KEY);
-          }
-        } else if (initialGuest) {
-          setUser(initialGuest);
         } else {
           setUser(null);
         }
@@ -75,11 +54,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       (error) => {
         console.error('Auth state error:', error);
-        if (initialGuest) {
-          setUser(initialGuest);
-        } else {
-          setAuthError(error.message);
-        }
+        setAuthError(error.message);
+        setUser(null);
         setLoading(false);
       }
     );
@@ -97,7 +73,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           displayName: result.user.displayName,
           email: result.user.email,
           photoURL: result.user.photoURL,
-          isGuest: false,
         });
       }
     } catch (err: unknown) {
@@ -111,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           (errorObj.message && errorObj.message.includes('configuration-not-found'))
         ) {
           friendlyMsg =
-            'Google Sign-in is not yet enabled in the Firebase Authentication console. You can click "Enter Guest Sanctuary" to explore with full features immediately.';
+            'Google Sign-in is not yet enabled in the Firebase Authentication console. Please enable Google provider in Firebase Auth.';
         } else if (
           errorObj.code === 'auth/popup-closed-by-user' ||
           (errorObj.message && errorObj.message.includes('popup-closed-by-user'))
@@ -122,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           (errorObj.message && errorObj.message.includes('unauthorized-domain'))
         ) {
           friendlyMsg =
-            'This domain is not authorized for OAuth in Firebase Console. Add this preview URL to Firebase Auth > Settings > Authorized Domains, or continue as Guest.';
+            'This domain is not authorized for OAuth in Firebase Console. Please add this domain to Firebase Auth > Settings > Authorized Domains.';
         } else if (errorObj.message) {
           friendlyMsg = errorObj.message;
         }
@@ -133,26 +108,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signInAsGuest = () => {
-    setAuthError(null);
-    const guestUser: AppUser = {
-      uid: 'guest_sanctuary_user',
-      displayName: 'Guest Sanctuary Explorer',
-      email: 'guest@smriti.memorial',
-      photoURL: null,
-      isGuest: true,
-    };
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(guestUser));
+  const getIdToken = async (): Promise<string | null> => {
+    if (!auth.currentUser) return null;
+    try {
+      return await auth.currentUser.getIdToken(false);
+    } catch (err) {
+      console.error('Failed to get user ID token:', err);
+      return null;
     }
-    setUser(guestUser);
   };
 
   const logOut = async () => {
     setAuthError(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(GUEST_STORAGE_KEY);
-    }
     try {
       await signOut(auth);
     } catch (err: unknown) {
@@ -170,8 +137,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         loading,
         signInWithGoogle,
-        signInAsGuest,
         logOut,
+        getIdToken,
         authError,
         clearAuthError,
       }}

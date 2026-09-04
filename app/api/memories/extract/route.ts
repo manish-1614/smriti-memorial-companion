@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGeminiClient, EMBEDDING_MODEL, generateContentWithResilience } from '@/lib/gemini';
+import { verifyAuthToken } from '@/lib/firebase-admin';
 
 export async function POST(req: NextRequest) {
+  // Enforce server-side Firebase Authentication check
+  const authResult = await verifyAuthToken(req);
+  if (!authResult.authenticated) {
+    return NextResponse.json(
+      { error: `Unauthorized: ${authResult.error || 'Valid Firebase ID token required.'}` },
+      { status: 401 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { userMessage, assistantReply, profileName, relationship, existingMemories } = body;

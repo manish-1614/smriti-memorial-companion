@@ -10,14 +10,12 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { MemorialProfile, MemorialMemory, ChatMessage, ConversationSession } from './types';
 
 // ==========================================
-// LOCAL STORAGE STORAGE HELPERS (FOR GUEST / RESILIENCE)
+// CLIENT-SIDE LOCAL CACHE HELPERS (FOR SNAPPY OFFLINE RESILIENCE)
 // ==========================================
-const isGuestUser = (userId: string) => userId.startsWith('guest_');
-
 const getLocalStore = <T>(key: string, defaultValue: T): T => {
   if (typeof window === 'undefined') return defaultValue;
   try {
@@ -43,10 +41,6 @@ const setLocalStore = <T>(key: string, value: T): void => {
 
 export async function fetchUserMemorials(userId: string): Promise<MemorialProfile[]> {
   const localKey = `smriti_memorials_${userId}`;
-  if (isGuestUser(userId)) {
-    const list = getLocalStore<MemorialProfile[]>(localKey, []);
-    return list.sort((a, b) => b.createdAt - a.createdAt);
-  }
 
   try {
     const memRef = collection(db, 'users', userId, 'memorials');
@@ -90,19 +84,17 @@ export async function saveMemorialProfile(
     updatedAt: now,
   };
 
-  // Update local storage first for instant feedback
+  // Update local cache first for instant feedback
   const updatedList = existingLocal
     ? currentList.map((m) => (m.id === memorialId ? data : m))
     : [data, ...currentList];
   setLocalStore(localKey, updatedList);
 
-  if (!isGuestUser(userId)) {
-    try {
-      const docRef = doc(db, 'users', userId, 'memorials', memorialId);
-      await setDoc(docRef, data, { merge: true });
-    } catch (err) {
-      console.warn('Firestore sync warning (saved locally):', err);
-    }
+  try {
+    const docRef = doc(db, 'users', userId, 'memorials', memorialId);
+    await setDoc(docRef, data, { merge: true });
+  } catch (err) {
+    console.warn('Firestore sync warning (saved locally):', err);
   }
 
   return data;
@@ -116,13 +108,11 @@ export async function deleteMemorialProfile(userId: string, memorialId: string):
     currentList.filter((m) => m.id !== memorialId)
   );
 
-  if (!isGuestUser(userId)) {
-    try {
-      const docRef = doc(db, 'users', userId, 'memorials', memorialId);
-      await deleteDoc(docRef);
-    } catch (err) {
-      console.warn('Firestore delete warning:', err);
-    }
+  try {
+    const docRef = doc(db, 'users', userId, 'memorials', memorialId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn('Firestore delete warning:', err);
   }
 }
 
@@ -132,10 +122,6 @@ export async function deleteMemorialProfile(userId: string, memorialId: string):
 
 export async function fetchMemoriesForMemorial(userId: string, memorialId: string): Promise<MemorialMemory[]> {
   const localKey = `smriti_memories_${userId}_${memorialId}`;
-  if (isGuestUser(userId)) {
-    const list = getLocalStore<MemorialMemory[]>(localKey, []);
-    return list.sort((a, b) => b.createdAt - a.createdAt);
-  }
 
   try {
     const ref = collection(db, 'users', userId, 'memorials', memorialId, 'memories');
@@ -178,12 +164,18 @@ export async function saveMemory(
 
   let embedding = memoryData.embedding;
 
-  // Compute embedding via API route
+  // Compute embedding via authenticated API route
   if (!embedding || embedding.length === 0) {
     try {
+      const token = await auth.currentUser?.getIdToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch('/api/memories/embed', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           text: memoryData.story,
           title: memoryData.title,
@@ -223,13 +215,11 @@ export async function saveMemory(
     : [memoryRecord, ...currentList];
   setLocalStore(localKey, updatedList);
 
-  if (!isGuestUser(userId)) {
-    try {
-      const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memId);
-      await setDoc(docRef, memoryRecord, { merge: true });
-    } catch (err) {
-      console.warn('Firestore memory save warning (saved locally):', err);
-    }
+  try {
+    const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memId);
+    await setDoc(docRef, memoryRecord, { merge: true });
+  } catch (err) {
+    console.warn('Firestore memory save warning (saved locally):', err);
   }
 
   return memoryRecord;
@@ -243,13 +233,11 @@ export async function deleteMemory(userId: string, memorialId: string, memoryId:
     currentList.filter((m) => m.id !== memoryId)
   );
 
-  if (!isGuestUser(userId)) {
-    try {
-      const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memoryId);
-      await deleteDoc(docRef);
-    } catch (err) {
-      console.warn('Firestore memory delete warning:', err);
-    }
+  try {
+    const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memoryId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn('Firestore memory delete warning:', err);
   }
 }
 
@@ -259,10 +247,6 @@ export async function deleteMemory(userId: string, memorialId: string, memoryId:
 
 export async function fetchConversations(userId: string, memorialId: string): Promise<ConversationSession[]> {
   const localKey = `smriti_convs_${userId}_${memorialId}`;
-  if (isGuestUser(userId)) {
-    const list = getLocalStore<ConversationSession[]>(localKey, []);
-    return list.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-  }
 
   try {
     const convRef = collection(db, 'users', userId, 'memorials', memorialId, 'conversations');
@@ -299,13 +283,11 @@ export async function createConversationSession(
   const currentList = getLocalStore<ConversationSession[]>(localKey, []);
   setLocalStore(localKey, [session, ...currentList]);
 
-  if (!isGuestUser(userId)) {
-    try {
-      const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', convId);
-      await setDoc(docRef, session);
-    } catch (err) {
-      console.warn('Firestore conv session warning (saved locally):', err);
-    }
+  try {
+    const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', convId);
+    await setDoc(docRef, session);
+  } catch (err) {
+    console.warn('Firestore conv session warning (saved locally):', err);
   }
 
   return session;
@@ -313,10 +295,6 @@ export async function createConversationSession(
 
 export async function fetchMessages(userId: string, memorialId: string, conversationId: string): Promise<ChatMessage[]> {
   const localKey = `smriti_msgs_${userId}_${memorialId}_${conversationId}`;
-  if (isGuestUser(userId)) {
-    const list = getLocalStore<ChatMessage[]>(localKey, []);
-    return list.sort((a, b) => a.createdAt - b.createdAt);
-  }
 
   try {
     const msgRef = collection(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId, 'messages');
@@ -368,19 +346,17 @@ export async function saveChatMessage(
   );
   setLocalStore(convKey, updatedConvs);
 
-  if (!isGuestUser(userId)) {
-    try {
-      const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId, 'messages', msgId);
-      await setDoc(docRef, chatMessage);
+  try {
+    const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId, 'messages', msgId);
+    await setDoc(docRef, chatMessage);
 
-      const convRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId);
-      await updateDoc(convRef, {
-        lastMessageSnippet: snippet,
-        lastMessageAt: now,
-      }).catch(() => {});
-    } catch (err) {
-      console.warn('Firestore chat save warning (saved locally):', err);
-    }
+    const convRef = doc(db, 'users', userId, 'memorials', memorialId, 'conversations', conversationId);
+    await updateDoc(convRef, {
+      lastMessageSnippet: snippet,
+      lastMessageAt: now,
+    }).catch(() => {});
+  } catch (err) {
+    console.warn('Firestore chat save warning (saved locally):', err);
   }
 
   return chatMessage;
