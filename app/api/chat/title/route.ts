@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateContentWithResilience } from '@/lib/gemini';
 import { verifyAuthToken } from '@/lib/firebase-admin';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Deterministically truncates text cleanly without breaking words.
  */

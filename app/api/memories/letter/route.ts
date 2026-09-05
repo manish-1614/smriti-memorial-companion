@@ -3,6 +3,8 @@ import { generateContentWithResilience } from '@/lib/gemini';
 import { verifyAuthToken, getAdminFirestore } from '@/lib/firebase-admin';
 import { MemorialProfile, MemorialMemory } from '@/lib/types';
 
+export const dynamic = 'force-dynamic';
+
 interface LetterRequestBody {
   profileId: string;
   profile?: MemorialProfile;

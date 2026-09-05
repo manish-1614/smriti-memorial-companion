@@ -5,6 +5,8 @@ import { MemorialProfile, MemorialMemory } from '@/lib/types';
 import { verifyAuthToken } from '@/lib/firebase-admin';
 import { analyzeSemanticLanguageAndTone } from '@/lib/language-analysis';
 
+export const dynamic = 'force-dynamic';
+
 interface ChatRequestBody {
   profile: MemorialProfile;
   memories: MemorialMemory[];

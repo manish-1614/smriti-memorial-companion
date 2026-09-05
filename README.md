@@ -30,13 +30,17 @@ Smriti is an authentic, user-authenticated digital memorial companion applicatio
 
 ## 🔒 Security Architecture & Firestore Rules
 
-All data is strictly owner-isolated in Firestore under `/users/{userId}/...` path hierarchy:
+All data is strictly owner-isolated in Firestore under the `/users/{userId}/...` path hierarchy:
 
 ```javascript
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Core user-isolated interaction rules
+    match /users/{userId}/interactions/{interactionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Default deny for unmatched collections to uphold Zero Insecure Defaults
     match /{document=**} {
       allow read, write: if false;
@@ -78,14 +82,24 @@ service cloud.firestore {
 }
 ```
 
+To deploy the security rules directly to your Firebase project:
+```bash
+firebase deploy --only firestore:rules
+```
+
 ---
 
 ## 🚀 Cloud Run Deployment & Verification Guide
 
 ### 1. Prerequisites & GCP APIs Setup
 
-Enable the required Google Cloud APIs:
+Make sure the Google Cloud SDK (`gcloud`) and Firebase CLI are installed and authenticated. Then set your active project and enable the necessary APIs:
+
 ```bash
+# Set your active Google Cloud Project ID
+gcloud config set project smriti-87d70
+
+# Enable required Google Cloud services
 gcloud services enable \
   run.googleapis.com \
   secretmanager.googleapis.com \
@@ -95,40 +109,63 @@ gcloud services enable \
 
 ### 2. Secret Manager Configuration
 
-Store your Gemini API key in Google Cloud Secret Manager:
+Store your Gemini API key in Google Cloud Secret Manager and grant the Cloud Run runtime compute service account the `roles/secretmanager.secretAccessor` IAM role:
 
 ```bash
 # Create and populate the secret
 gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
-echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
+echo -n "YOUR_API_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
 
 # Grant the default Cloud Run service account access to read the secret
 gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
-  --member="serviceAccount:$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
+  --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 ```
 
+*(Note: In your project `smriti-87d70`, replace `YOUR_PROJECT_NUMBER` with your project's number, or use `$(gcloud projects describe smriti-87d70 --format='value(projectNumber)')`)*.
+
 ### 3. Deploy to Google Cloud Run
 
-Deploy directly from source container with Secret Manager binding and mandatory campaign verification labeling:
+Deploy directly from source container with Secret Manager binding and the mandatory campaign verification label (`--labels dev-tutorial=cloud-run-ai-challenge`):
 
 ```bash
 gcloud run deploy smriti \
   --source . \
-  --region us-central1 \
+  --region asia-southeast1 \
   --allow-unauthenticated \
   --set-secrets GEMINI_API_KEY=GEMINI_API_KEY:latest \
-  --set-env-vars NEXT_PUBLIC_FIREBASE_PROJECT_ID=smriti-87d70 \
+  --set-env-vars NEXT_PUBLIC_FIREBASE_PROJECT_ID=smriti-87d70,NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyBNokx9zxnVs2TWyAhblpVlSXVUnqbqQe8,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=smriti-87d70.firebaseapp.com,NEXT_PUBLIC_FIREBASE_DATABASE_ID=\(default\) \
   --labels dev-tutorial=cloud-run-ai-challenge
 ```
 
+*(You can also use `--region us-central1` if you prefer deploying in the US region).*
+
 ### 4. Automated Verification Label Binding
+
+To register or confirm that the Cloud Run service is properly tagged for challenge verification, apply the verification binding:
 
 ```bash
 gcloud run services update smriti \
   --update-labels=dev-tutorial=cloud-run-ai-challenge \
-  --region=us-central1
+  --region=asia-southeast1
 ```
+
+---
+
+### 🔑 Project Configuration & Bound Credentials Reference
+
+Before publishing, verify the following configuration values bound to this application:
+
+| Parameter | Value | Description |
+| :--- | :--- | :--- |
+| **Google Cloud Project ID** | `smriti-87d70` | Active GCP & Firebase project |
+| **Recommended Region** | `asia-southeast1` *(or `us-central1`)* | Cloud Run compute execution region |
+| **Cloud Run Service Name** | `smriti` | Service identifier |
+| **Mandatory Verification Label** | `dev-tutorial=cloud-run-ai-challenge` | Challenge automated tracking label |
+| **Firestore Database ID** | `(default)` | Native Cloud Firestore database |
+| **Firebase Auth Domain** | `smriti-87d70.firebaseapp.com` | Google Sign-in OAuth authorized domain |
+| **Firebase Web App ID** | `1:637076895768:web:b5bc3d68416634e7a42b6d` | Registered Firebase Web App client |
+| **Gemini Secret Key** | `GEMINI_API_KEY` in Secret Manager | Server-side API key for vector embeddings & chat |
 
 ---
 

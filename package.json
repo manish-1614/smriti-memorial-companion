@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 -H 0.0.0.0",
-    "build": "next build",
+    "build": "next build && rm -rf dist && mkdir -p dist && cp -r .next/* dist/ && cp -r .next/server/app/index.html dist/index.html 2>/dev/null || true && cp -r public/* dist/ 2>/dev/null || true",
     "start": "next start -p 3000 -H 0.0.0.0",
     "lint": "eslint .",
-    "clean": "rm -rf .next"
+    "clean": "rm -rf .next dist"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
