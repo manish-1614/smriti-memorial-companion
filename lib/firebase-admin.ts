@@ -1,4 +1,4 @@
-import { getApps, initializeApp, App } from 'firebase-admin/app';
+import { getApps, initializeApp, App, cert } from 'firebase-admin/app';
 import { getAuth, DecodedIdToken } from 'firebase-admin/auth';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { NextRequest } from 'next/server';
@@ -18,7 +18,21 @@ export function getFirebaseAdminApp(): App {
     process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
     firebaseConfig.projectId;
 
+  let credential;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    try {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      if (serviceAccount.private_key) {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      }
+      credential = cert(serviceAccount);
+    } catch (e) {
+      console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY, falling back to default credentials:', e);
+    }
+  }
+
   adminApp = initializeApp({
+    credential,
     projectId: projectId || undefined,
   });
 

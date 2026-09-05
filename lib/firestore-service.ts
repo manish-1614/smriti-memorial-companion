@@ -13,6 +13,26 @@ import {
 import { db, auth } from './firebase';
 import { MemorialProfile, MemorialMemory, ChatMessage, ConversationSession } from './types';
 
+/**
+ * Recursively removes any keys with `undefined` values from an object,
+ * preventing Firestore's "Unsupported field value: undefined" crashes.
+ */
+export function removeUndefined<T>(obj: T): T {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item) => removeUndefined(item)) as unknown as T;
+  }
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (value !== undefined) {
+      clean[key] = typeof value === 'object' && value !== null ? removeUndefined(value) : value;
+    }
+  }
+  return clean as T;
+}
+
 // ==========================================
 // CLIENT-SIDE LOCAL CACHE HELPERS (FOR SNAPPY OFFLINE RESILIENCE)
 // ==========================================
@@ -92,7 +112,7 @@ export async function saveMemorialProfile(
 
   try {
     const docRef = doc(db, 'users', userId, 'memorials', memorialId);
-    await setDoc(docRef, data, { merge: true });
+    await setDoc(docRef, removeUndefined(data), { merge: true });
   } catch (err) {
     console.warn('Firestore sync warning (saved locally):', err);
   }
@@ -217,7 +237,7 @@ export async function saveMemory(
 
   try {
     const docRef = doc(db, 'users', userId, 'memorials', memorialId, 'memories', memId);
-    await setDoc(docRef, memoryRecord, { merge: true });
+    await setDoc(docRef, removeUndefined(memoryRecord), { merge: true });
   } catch (err) {
     console.warn('Firestore memory save warning (saved locally):', err);
   }

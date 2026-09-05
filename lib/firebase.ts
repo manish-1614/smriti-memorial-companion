@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth, GoogleAuthProvider } from 'firebase/auth';
+import { getAuth, Auth, GoogleAuthProvider, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
 
@@ -25,7 +25,17 @@ if (!getApps().length) {
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app, databaseId);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('openid');
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
 googleProvider.setCustomParameters({
   prompt: 'select_account',
 });
+
+// Expose custom token sign-in helper when in browser context
+if (typeof window !== 'undefined') {
+  (window as unknown as { __smritiSignInWithCustomToken?: (token: string) => ReturnType<typeof signInWithCustomToken> }).__smritiSignInWithCustomToken = (token: string) =>
+    signInWithCustomToken(auth, token);
+}
+
 export { app };

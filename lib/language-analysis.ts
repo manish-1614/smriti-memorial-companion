@@ -21,14 +21,14 @@ const HINGLISH_TOKENS = new Set([
   'meri', 'mere', 'hum', 'hume', 'humko', 'hamara', 'hamari', 'hamare', 'aap', 'aapka', 'aapki', 'aapke',
   'tum', 'tumhara', 'tumhari', 'tumhare', 'tera', 'teri', 'tere', 'tujhe', 'tujhko', 'ye', 'yeh', 'wo',
   'woh', 'inka', 'unka', 'inko', 'unko', 'sab', 'sabhi', 'koi', 'kisi', 'kaun', 'hai', 'hain', 'ho',
-  'hoon', 'hun', 'tha', 'thi', 'the', 'hoga', 'hogi', 'hoge', 'honge', 'raha', 'rahi', 'rahe', 'hua',
+  'hoon', 'hun', 'tha', 'thi', 'hoga', 'hogi', 'hoge', 'honge', 'raha', 'rahi', 'rahe', 'hua',
   'hui', 'hue', 'kar', 'karo', 'karna', 'karta', 'karti', 'karte', 'kiya', 'kiye', 'karke', 'diya',
   'liya', 'gaya', 'gayi', 'gaye', 'ja', 'jao', 'jana', 'jata', 'jati', 'jate', 'aao', 'aana', 'aata',
   'aati', 'aate', 'bolo', 'boli', 'bola', 'bole', 'bolna', 'suno', 'suni', 'suna', 'sune', 'sunna',
   'dekho', 'dekha', 'dekhi', 'dekhe', 'dekhna', 'batao', 'bataya', 'batayi', 'bataye', 'batana',
   'lagta', 'lagti', 'lagte', 'laga', 'lagi', 'lage', 'chal', 'chalo', 'chale', 'chalna', 'chalta',
   'chalti', 'chalte', 'baitho', 'baitha', 'baithi', 'baithe', 'rehna', 'rehte', 'rehti', 'rehta',
-  'ruka', 'ruki', 'ruke', 'socho', 'socha', 'sochna', 'na', 'nahi', 'nahin', 'mat', 'toh', 'to', 'hi',
+  'ruka', 'ruki', 'ruke', 'socho', 'socha', 'sochna', 'na', 'nahi', 'nahin', 'mat', 'toh', 'hi',
   'bhi', 'pehle', 'baad', 'sath', 'saath', 'bina', 'waise', 'aise', 'bohot', 'bahut', 'thoda', 'thodi',
   'thode', 'zyada', 'jyada', 'bilkul', 'pakka', 'bas', 'sach', 'sachme', 'zaroor', 'zarur', 'shayad',
   'kripya', 'shukriya', 'dhanyawad', 'namaste', 'pranam', 'namaskar', 'yaar', 'bhai', 'accha', 'achha',
@@ -43,7 +43,7 @@ export function analyzeSemanticLanguageAndTone(message: string): SemanticAnalysi
   const cleanMsg = message.trim();
 
   // 1. Detect Scripts
-  const hasDevanagari = /[\u0900-\u097F]/.test(cleanMsg);
+  const hasDevanagari = /[\u0900-\u0963\u0966-\u097F]/.test(cleanMsg);
   const hasBengali = /[\u0980-\u09FF]/.test(cleanMsg);
   const hasTamil = /[\u0B80-\u0BFF]/.test(cleanMsg);
   const hasTelugu = /[\u0C00-\u0C7F]/.test(cleanMsg);
@@ -64,18 +64,18 @@ export function analyzeSemanticLanguageAndTone(message: string): SemanticAnalysi
   let targetLanguageDirective = '';
   let exampleStyleSnippet = '';
 
-  if (hasDevanagari) {
-    detectedLanguage = 'HINDI_DEVANAGARI';
-    languageLabel = 'Hindi (Devanagari script)';
-    script = 'Devanagari';
-    targetLanguageDirective = 'Respond strictly in authentic, natural Hindi using Devanagari script (देवनागरी). DO NOT reply in English or Romanized script.';
-    exampleStyleSnippet = 'हाँ बेटा, मुझे भी वह दिन बहुत अच्छी तरह याद है।';
-  } else if (hasBengali) {
+  if (hasBengali) {
     detectedLanguage = 'BENGALI';
     languageLabel = 'Bengali';
     script = 'Bengali';
     targetLanguageDirective = 'Respond in warm Bengali using Bengali script.';
     exampleStyleSnippet = 'হ্যাঁ, আমারও সেই দিনটার কথা মনে আছে।';
+  } else if (hasDevanagari) {
+    detectedLanguage = 'HINDI_DEVANAGARI';
+    languageLabel = 'Hindi (Devanagari script)';
+    script = 'Devanagari';
+    targetLanguageDirective = 'Respond strictly in authentic, natural Hindi using Devanagari script (देवनागरी). DO NOT reply in English or Romanized script.';
+    exampleStyleSnippet = 'हाँ बेटा, मुझे भी वह दिन बहुत अच्छी तरह याद है।';
   } else if (hasTamil || hasTelugu) {
     detectedLanguage = 'REGIONAL';
     languageLabel = 'Indic Regional Script';
@@ -102,8 +102,7 @@ export function analyzeSemanticLanguageAndTone(message: string): SemanticAnalysi
   let toneGuidance = 'Speak with intimate, relaxed familial warmth as a cherished loved one.';
 
   const isGrieving =
-    lower.includes('miss you') ||
-    lower.includes('miss u') ||
+    lower.includes('miss') ||
     lower.includes('yaad aati') ||
     lower.includes('yaad aa rahi') ||
     lower.includes('bohot yaad') ||

@@ -41,12 +41,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       auth,
       (currentUser) => {
         if (currentUser) {
-          setUser({
+          const appUser: AppUser = {
             uid: currentUser.uid,
             displayName: currentUser.displayName,
             email: currentUser.email,
             photoURL: currentUser.photoURL,
-          });
+          };
+          setUser(appUser);
         } else {
           setUser(null);
         }
@@ -68,36 +69,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
-        setUser({
+        const appUser: AppUser = {
           uid: result.user.uid,
           displayName: result.user.displayName,
           email: result.user.email,
           photoURL: result.user.photoURL,
-        });
+        };
+        setUser(appUser);
       }
     } catch (err: unknown) {
       console.error('Sign-in error:', err);
+
       let friendlyMsg = 'Google sign-in failed. Please try again.';
 
       if (err && typeof err === 'object') {
         const errorObj = err as { code?: string; message?: string };
+        const msg = (errorObj.message || '').toLowerCase();
+        const code = (errorObj.code || '').toLowerCase();
+
         if (
-          errorObj.code === 'auth/configuration-not-found' ||
-          (errorObj.message && errorObj.message.includes('configuration-not-found'))
+          msg.includes('401') ||
+          msg.includes('userinfo') ||
+          code.includes('401') ||
+          msg.includes('consent')
         ) {
           friendlyMsg =
-            'Google Sign-in is not yet enabled in the Firebase Authentication console. Please enable Google provider in Firebase Auth.';
+            'The OAuth Consent Screen in Google Cloud Console is set to "Testing". Please either add your email to the Test Users list or publish the app to "In production".';
+        } else if (
+          errorObj.code === 'auth/configuration-not-found' ||
+          msg.includes('configuration-not-found')
+        ) {
+          friendlyMsg =
+            'Google Sign-in is not yet enabled in Firebase Console. Please enable Google provider under Authentication in the Firebase Console.';
         } else if (
           errorObj.code === 'auth/popup-closed-by-user' ||
-          (errorObj.message && errorObj.message.includes('popup-closed-by-user'))
+          msg.includes('popup-closed-by-user')
         ) {
           friendlyMsg = 'The sign-in popup was closed before completing.';
         } else if (
           errorObj.code === 'auth/unauthorized-domain' ||
-          (errorObj.message && errorObj.message.includes('unauthorized-domain'))
+          msg.includes('unauthorized-domain')
         ) {
           friendlyMsg =
-            'This domain is not authorized for OAuth in Firebase Console. Please add this domain to Firebase Auth > Settings > Authorized Domains.';
+            'This preview domain is awaiting authorization in Firebase Console (Authentication > Settings > Authorized domains).';
         } else if (errorObj.message) {
           friendlyMsg = errorObj.message;
         }
@@ -109,13 +123,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getIdToken = async (): Promise<string | null> => {
-    if (!auth.currentUser) return null;
-    try {
-      return await auth.currentUser.getIdToken(false);
-    } catch (err) {
-      console.error('Failed to get user ID token:', err);
-      return null;
+    if (auth.currentUser) {
+      try {
+        return await auth.currentUser.getIdToken(false);
+      } catch (err) {
+        console.warn('Failed to get user ID token:', err);
+      }
     }
+    return null;
   };
 
   const logOut = async () => {
@@ -123,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await signOut(auth);
     } catch (err: unknown) {
-      console.error('Sign-out error:', err);
+      console.warn('Sign-out warning:', err);
     } finally {
       setUser(null);
     }
@@ -151,4 +166,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-

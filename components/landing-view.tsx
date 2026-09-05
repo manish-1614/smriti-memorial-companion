@@ -80,7 +80,7 @@ export default function LandingView() {
           </div>
         )}
 
-        <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3.5">
+        <div className="pt-2 flex items-center justify-center">
           <button
             id="hero-sign-in-btn"
             onClick={handleSignIn}
