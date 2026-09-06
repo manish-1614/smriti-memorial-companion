@@ -1,4 +1,4 @@
-import { getApps, initializeApp, App, cert } from 'firebase-admin/app';
+import { getApps, initializeApp, App, cert, applicationDefault, AppOptions } from 'firebase-admin/app';
 import { getAuth, DecodedIdToken } from 'firebase-admin/auth';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { NextRequest } from 'next/server';
@@ -18,23 +18,35 @@ export function getFirebaseAdminApp(): App {
     process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
     firebaseConfig.projectId;
 
-  let credential;
+  const options: AppOptions = {};
+  if (projectId) {
+    options.projectId = projectId;
+  }
+
   if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
       const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
       if (serviceAccount.private_key) {
         serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
       }
-      credential = cert(serviceAccount);
+      options.credential = cert(serviceAccount);
     } catch (e) {
       console.warn('Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY, falling back to default credentials:', e);
     }
   }
 
-  adminApp = initializeApp({
-    credential,
-    projectId: projectId || undefined,
-  });
+  // If no explicit service account key was provided, attempt Application Default Credentials (ADC)
+  // On Google Cloud Run / Cloud Build, this automatically leverages the environment's service account.
+  if (!options.credential) {
+    try {
+      options.credential = applicationDefault();
+    } catch (e) {
+      // In local dev without ADC, do not attach an invalid credential property
+      console.info('Application default credentials not available, initializing Firebase Admin with project ID only:', e);
+    }
+  }
+
+  adminApp = initializeApp(options);
 
   return adminApp;
 }
