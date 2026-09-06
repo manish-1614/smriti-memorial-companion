@@ -151,6 +151,7 @@ gcloud run deploy smriti \
   --port 8080 \
   --memory 1Gi \
   --region asia-southeast1 \
+  --clear-base-image \
   --allow-unauthenticated \
   --set-secrets GEMINI_API_KEY=GEMINI_API_KEY:latest \
   --set-env-vars NEXT_PUBLIC_FIREBASE_PROJECT_ID=smriti-87d70,NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyBNokx9zxnVs2TWyAhblpVlSXVUnqbqQe8,NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=smriti-87d70.firebaseapp.com,NEXT_PUBLIC_FIREBASE_DATABASE_ID=\(default\) \
